@@ -49,7 +49,19 @@ async function clip(dir: string, name = 'clip.mp4', seconds = 2): Promise<string
   return path
 }
 
-async function harness(cwd: string): Promise<Context> {
+/** An `llm` seam declaring one route's input modalities. */
+function provideRoute(ctx: Context, inputModalities: readonly string[] | undefined): void {
+  ctx.provide('llm', {
+    resolveModelInfo: () => Promise.resolve({ inputModalities }),
+  } as never)
+}
+
+const UNDECLARED = Symbol('undeclared')
+
+async function harness(
+  cwd: string,
+  modalities: readonly string[] | typeof UNDECLARED = ['text', 'image'],
+): Promise<Context> {
   const dshHome = await workspace()
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -57,6 +69,7 @@ async function harness(cwd: string): Promise<Context> {
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalFileSystem, { cwd })
   await ctx.plugin(LocalAttachmentStore, { dshHome })
+  provideRoute(ctx, modalities === UNDECLARED ? undefined : modalities)
   await ctx.plugin(ViewVideo, {})
   await new Promise(resolve => setTimeout(resolve, 100))
   return ctx
@@ -72,7 +85,11 @@ async function call(ctx: Context, args: Record<string, unknown>) {
     name: 'view_video',
     arguments: args,
     signal: new AbortController().signal,
-  })
+    agent: {
+      options: { provider: 'p', model: 'm' },
+      session: { header: { cwd: undefined }, requestHeader: () => undefined },
+    },
+  } as never)
 }
 
 afterEach(async () => {
@@ -121,6 +138,61 @@ describe('view_video', () => {
     })
     expect(result.isError).toBe(false)
     expect(textOf(result.content)).toContain('tiled 2x1')
+  })
+
+  it('refuses a route that cannot carry the sheet it would produce', async () => {
+    const dir = await workspace()
+    await clip(dir)
+    // The sheet is an image, so a text-only route cannot continue with the
+    // result — refuse before ffmpeg runs and before anything is committed.
+    const ctx = await harness(dir, ['text'])
+    const result = await call(ctx, { file_path: 'clip.mp4' })
+    expect(result.isError).toBe(true)
+    expect(textOf(result.content)).toContain('does not declare image input')
+  })
+
+  it('refuses when the route declares no modalities at all', async () => {
+    const dir = await workspace()
+    await clip(dir)
+    const ctx = await harness(dir, UNDECLARED)
+    const result = await call(ctx, { file_path: 'clip.mp4' })
+    expect(result.isError).toBe(true)
+    expect(textOf(result.content)).toContain('does not declare image input')
+  })
+
+  it('refuses when no route can be resolved at all', async () => {
+    const dir = await workspace()
+    await clip(dir)
+    const ctx = await harness(dir)
+    // No agent on the execution: nothing names a provider or model.
+    const result = await ctx.tools.execute({
+      callId: 'call-noroute' as never,
+      name: 'view_video',
+      arguments: { file_path: 'clip.mp4' },
+      signal: new AbortController().signal,
+    })
+    expect(result.isError).toBe(true)
+    expect(textOf(result.content)).toContain('model route could not be resolved')
+  })
+
+  it('prefers the session request header over agent options', async () => {
+    const dir = await workspace()
+    await clip(dir)
+    const ctx = await harness(dir)
+    const result = await ctx.tools.execute({
+      callId: 'call-hdr' as never,
+      name: 'view_video',
+      arguments: { file_path: 'clip.mp4', count: 2 },
+      signal: new AbortController().signal,
+      agent: {
+        options: { provider: 'stale', model: 'stale' },
+        session: {
+          header: { cwd: undefined },
+          requestHeader: () => ({ config: { provider: 'p', model: 'live' } }),
+        },
+      },
+    } as never)
+    expect(result.isError).toBe(false)
   })
 
   it('refuses an empty path without touching the filesystem', async () => {
@@ -204,6 +276,7 @@ describe('view_video', () => {
     await ctx.plugin(LocalSubprocessRuntime)
     await ctx.plugin(LocalFileSystem, { cwd: dir })
     await ctx.plugin(LocalAttachmentStore, { dshHome })
+    provideRoute(ctx, ['text', 'image'])
     await new Promise(resolve => setTimeout(resolve, 100))
     // A deployment may narrow its accepted raster types; the sheet is JPEG.
     Object.defineProperty(ctx.attachments, 'imageLimits', {

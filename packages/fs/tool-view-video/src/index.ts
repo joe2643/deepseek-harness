@@ -25,6 +25,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { assertImageCapableRoute } from './route.ts'
 import { locateVideo } from './locate.ts'
 import { probeVideo, renderSheet } from './ffmpeg.ts'
 import { planSampling, summarize } from './plan.ts'
@@ -192,6 +193,11 @@ export function apply(ctx: Context, config: Config): void {
       if (!limits.mediaTypes.includes('image/jpeg')) {
         throw new Error('this deployment does not accept image/jpeg, which view_video uses for its sheets')
       }
+      // The sheet is a JPEG, so this needs IMAGE capability, not video: a
+      // video-only route still cannot carry the result. Refusing here, before
+      // ffmpeg runs and before an attachment is committed, keeps a durable
+      // image block out of a route that cannot continue with one.
+      await assertImageCapableRoute(ctx, exec, requested)
 
       const { path, cwd } = await locateVideo(ctx, requested, exec)
       const video = await probeVideo(ctx, path, cwd, exec.signal)

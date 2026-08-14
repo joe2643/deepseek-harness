@@ -2760,7 +2760,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/fs/tool-view-video/src/index.ts:37`](../packages/fs/tool-view-video/src/index.ts)
+Source: [`packages/fs/tool-view-video/src/index.ts:38`](../packages/fs/tool-view-video/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 
