@@ -119,6 +119,33 @@ describe('pi-ai request context conversion', () => {
     })
   })
 
+  it('promotes a video to a fetchable URL without reading its bytes', async () => {
+    const readVideo = vi.fn(() => Promise.resolve({ ref: videoRef, data: Uint8Array.of(1, 2, 3, 4) }))
+    const store = { readImage: vi.fn(), readVideo } as unknown as AttachmentStore
+    const context = await toPiContext(
+      request([user([{ type: 'video', attachment: videoRef }])]),
+      store,
+      () => Promise.resolve('https://media.example.com/m?t=x&exp=1&sig=y'),
+    )
+    expect(context.messages[0]).toMatchObject({
+      content: [{ type: 'image', dshVideo: true, dshVideoUrl: 'https://media.example.com/m?t=x&exp=1&sig=y', data: '' }],
+    })
+    // Promotion is the point: the bytes are never read, so a long clip costs
+    // a few hundred request bytes instead of 4/3 of the file.
+    expect(readVideo).not.toHaveBeenCalled()
+  })
+
+  it('inlines the bytes when promotion declines', async () => {
+    const context = await toPiContext(
+      request([user([{ type: 'video', attachment: videoRef }])]),
+      attachments,
+      () => Promise.resolve('http://127.0.0.1:8089/media?t=x'),
+    )
+    expect(context.messages[0]).toMatchObject({
+      content: [{ type: 'image', dshVideo: true, data: 'AQIDBA==' }],
+    })
+  })
+
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {
     const callId = CallId('missing-call')
     const knownCallId = CallId('known-call')

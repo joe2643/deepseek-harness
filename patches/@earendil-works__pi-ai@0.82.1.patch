@@ -1,12 +1,21 @@
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index ed81baa3860fa20cf9d38885f9dd4b6b2f639045..52e6310a429d9a14f7982162ae506d74560fcdc8 100644
+index ed81baa3860fa20cf9d38885f9dd4b6b2f639045..c936ffff29adf0e8422c179727aef4cb73c72b14 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
-@@ -814,6 +814,20 @@ export function convertMessages(model, context, compat, options) {
+@@ -814,6 +814,29 @@ export function convertMessages(model, context, compat, options) {
                              text: sanitizeSurrogates(item.text),
                          };
                      }
 +                    else if (item.dshVideo === true) {
++                        // A promoted URL keeps the request body at a few
++                        // hundred bytes; inline base64 is 4/3 the file and a
++                        // gateway rejects an oversized body outright.
++                        if (typeof item.dshVideoUrl === "string" && item.dshVideoUrl.length > 0) {
++                            return {
++                                type: "video_url",
++                                video_url: { url: item.dshVideoUrl },
++                            };
++                        }
 +                        // Harness video marker. UserMessage.content is typed
 +                        // (TextContent | ImageContent)[], so without this branch a
 +                        // video falls through to image_url and the provider rejects
@@ -23,7 +32,7 @@ index ed81baa3860fa20cf9d38885f9dd4b6b2f639045..52e6310a429d9a14f7982162ae506d74
                      else {
                          return {
                              type: "image_url",
-@@ -969,15 +983,22 @@ export function convertMessages(model, context, compat, options) {
+@@ -969,15 +992,24 @@ export function convertMessages(model, context, compat, options) {
                          deferredToolNames.add(name);
                      }
                  }
@@ -41,7 +50,9 @@ index ed81baa3860fa20cf9d38885f9dd4b6b2f639045..52e6310a429d9a14f7982162ae506d74
 +                                ? {
 +                                    type: "video_url",
 +                                    video_url: {
-+                                        url: `data:${block.mimeType};base64,${block.data}`,
++                                        url: typeof block.dshVideoUrl === "string" && block.dshVideoUrl.length > 0
++                                            ? block.dshVideoUrl
++                                            : `data:${block.mimeType};base64,${block.data}`,
 +                                    },
 +                                }
 +                                : {
@@ -79,10 +90,10 @@ index 6aa6aa2bb660194e64a06d5dc98f61862311f210..6faf7e81aa34272cc0980b2d32fb0b8e
      }
      return messages.map((msg) => {
 diff --git a/dist/types.d.ts b/dist/types.d.ts
-index 0a1b76919766126f1c8c4a306b24e8096a5e02d0..4f985a22161674e4f2358a4eff44ab3494114a90 100644
+index 0a1b76919766126f1c8c4a306b24e8096a5e02d0..c462d2a1bb32a595280582f32d7bf6baf3cbbba7 100644
 --- a/dist/types.d.ts
 +++ b/dist/types.d.ts
-@@ -240,6 +240,13 @@ export interface ImageContent {
+@@ -240,6 +240,20 @@ export interface ImageContent {
      type: "image";
      data: string;
      mimeType: string;
@@ -93,10 +104,17 @@ index 0a1b76919766126f1c8c4a306b24e8096a5e02d0..4f985a22161674e4f2358a4eff44ab34
 +     * video needs a discriminator that travels in the same ordered array.
 +     */
 +    dshVideo?: boolean;
++    /**
++     * DSH patch: a provider-fetchable URL for a `dshVideo` entry. Present
++     * means `data` is empty and this address is emitted instead of a base64
++     * data URI, which keeps the request body small enough to clear a
++     * gateway's body-size limit.
++     */
++    dshVideoUrl?: string;
  }
  export interface ToolCall {
      type: "toolCall";
-@@ -646,7 +653,7 @@ export interface Model<TApi extends Api> {
+@@ -646,7 +660,7 @@ export interface Model<TApi extends Api> {
       * Missing keys use provider defaults. null marks a level as unsupported.
       */
      thinkingLevelMap?: ThinkingLevelMap;

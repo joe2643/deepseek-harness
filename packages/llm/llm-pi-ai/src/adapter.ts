@@ -52,6 +52,7 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import type { VideoUrlResolver } from './media-url.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -77,6 +78,12 @@ export interface PiAiAdapterOptions {
   resolveApiKey: (provider: string, profile: ResolvedPiAiProviderProfile) => Promise<string | undefined>
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /**
+   * Optional promotion of a durable video to a provider-fetchable URL,
+   * resolved per request. Declining inlines the bytes instead, so a signing
+   * outage degrades a large request rather than failing it.
+   */
+  resolveVideoUrl?: VideoUrlResolver
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
@@ -315,7 +322,7 @@ export class PiAiAdapter extends LlmAdapter {
       }
       const context = attachments === undefined
         ? toPiContext(options)
-        : await toPiContext(options, attachments)
+        : await toPiContext(options, attachments, this.config.resolveVideoUrl)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },

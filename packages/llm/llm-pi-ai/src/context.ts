@@ -9,6 +9,8 @@ import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-ll
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
+import { resolveFetchableVideoUrl } from './media-url.ts'
+import type { VideoUrlResolver } from './media-url.ts'
 
 /**
  * Marker for a video carried inside pi-ai's user-content array.
@@ -26,6 +28,13 @@ import { toPiAssistant } from './replay.ts'
 export interface PiVideoContent extends ImageContent {
   /** Discriminates this adapter's marker from a real image entry. */
   dshVideo: true
+  /**
+   * A provider-fetchable URL for these bytes, when the deployment resolved
+   * one. Present means `data` is empty and the serializer emits this address
+   * instead of a base64 data URI, which keeps the request body small enough
+   * to clear a gateway's size limit.
+   */
+  dshVideoUrl?: string
 }
 
 /** Join the text blocks of a harness message. */
@@ -47,6 +56,7 @@ function toolResultText(blocks: readonly ContentBlock[]): string {
 async function userContent(
   blocks: readonly ContentBlock[],
   attachments: AttachmentStore,
+  resolveVideoUrl?: VideoUrlResolver,
 ): Promise<string | (TextContent | ImageContent)[]> {
   const content: (TextContent | ImageContent)[] = []
   for (const block of blocks) {
@@ -64,6 +74,21 @@ async function userContent(
         break
       }
       case 'video': {
+        // Try a URL first: it keeps the request body at a few hundred bytes,
+        // which is the difference between a long clip arriving and the
+        // gateway refusing an oversized body. Reading the bytes is skipped
+        // entirely when promotion succeeds.
+        const url = await resolveFetchableVideoUrl(resolveVideoUrl, block.attachment)
+        if (url !== undefined) {
+          content.push({
+            type: 'image',
+            dshVideo: true,
+            dshVideoUrl: url,
+            data: '',
+            mimeType: block.attachment.mediaType,
+          } satisfies PiVideoContent)
+          break
+        }
         const stored = await attachments.readVideo(block.attachment)
         content.push({
           type: 'image',
@@ -75,7 +100,7 @@ async function userContent(
       }
       case 'tool-result':
         {
-          const nested = await userContent(block.content, attachments)
+          const nested = await userContent(block.content, attachments, resolveVideoUrl)
           if (typeof nested === 'string') {
             if (nested.length > 0) content.push({ type: 'text', text: nested })
           } else {
@@ -163,15 +188,31 @@ export function toPiContext(options: GenerateOptions): PiContext
  * Convert harness history to a pi-ai Context while resolving durable images.
  * Tool result names are recovered from preceding assistant tool calls.
  * @param options - the harness request; `options.system` maps to pi-ai's single `systemPrompt` slot.
- * @param attachments - durable byte resolver for image references.
+ * @param attachments - durable byte resolver for image and video references.
+ * @param resolveVideoUrl - optional promotion of a video to a provider-fetchable
+ *   URL; declining (or its absence) inlines the bytes instead.
  * @returns the asynchronously resolved pi-ai context.
  */
-export function toPiContext(options: GenerateOptions, attachments: AttachmentStore): Promise<PiContext>
-export function toPiContext(options: GenerateOptions, attachments?: AttachmentStore): PiContext | Promise<PiContext> {
-  return attachments === undefined ? textOnlyContext(options) : toPiContextWithImages(options, attachments)
+export function toPiContext(
+  options: GenerateOptions,
+  attachments: AttachmentStore,
+  resolveVideoUrl?: VideoUrlResolver,
+): Promise<PiContext>
+export function toPiContext(
+  options: GenerateOptions,
+  attachments?: AttachmentStore,
+  resolveVideoUrl?: VideoUrlResolver,
+): PiContext | Promise<PiContext> {
+  return attachments === undefined
+    ? textOnlyContext(options)
+    : toPiContextWithImages(options, attachments, resolveVideoUrl)
 }
 
-async function toPiContextWithImages(options: GenerateOptions, attachments: AttachmentStore): Promise<PiContext> {
+async function toPiContextWithImages(
+  options: GenerateOptions,
+  attachments: AttachmentStore,
+  resolveVideoUrl?: VideoUrlResolver,
+): Promise<PiContext> {
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
 
@@ -199,13 +240,13 @@ async function toPiContextWithImages(options: GenerateOptions, attachments: Atta
     }
     // user role: text + tool results (each result becomes its own message).
     const regular = message.content.filter(block => block.type !== 'tool-result')
-    const content = await userContent(regular, attachments)
+    const content = await userContent(regular, attachments, resolveVideoUrl)
     const results = message.content.filter(block => block.type === 'tool-result')
     if (content.length > 0 || results.length === 0) {
       messages.push({ role: 'user', content, timestamp: 0 })
     }
     for (const result of results) {
-      const resultContent = await userContent(result.content, attachments)
+      const resultContent = await userContent(result.content, attachments, resolveVideoUrl)
       messages.push({
         role: 'toolResult',
         toolCallId: result.toolCallId,

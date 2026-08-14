@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-native-video-content-blocks.md
-2026-08-14-native-video-content-blocks.md: 722e9aa1034474dbfed99319ed9dd8139d1a9485
-2026-08-14-native-video-content-blocks.zh.md: 4b63e5a8d791799459fc66c817f9eb32106750d3
+2026-08-14-native-video-content-blocks.md: 7b27b1cfe8e4576f5a37e76f302cb8cb7d6e9520
+2026-08-14-native-video-content-blocks.zh.md: 401bd87a620f14652e044e3ca41bbbb09bbbaf1e

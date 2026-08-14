@@ -80,6 +80,8 @@ export type {
   ResolvedPiAiProviderProfile,
 } from './config.ts'
 export { supportedProtocols } from './provider.ts'
+export { isFetchableByProvider } from './media-url.ts'
+export type { VideoUrlResolver } from './media-url.ts'
 
 export const name = 'llm-pi-ai'
 export const inject = ['llm']
