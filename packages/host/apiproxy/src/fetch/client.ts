@@ -234,6 +234,25 @@ type UnaryTimeoutPolicy = 'default' | 'caller-signal-only'
 const INTERNAL_BASE = 'http://dsh.internal'
 
 /**
+ * v4-shaped id minted from the strongest source this runtime exposes: `crypto.randomUUID`,
+ * else `crypto.getRandomValues`, else `Math.random`. Only the first is secure-context gated
+ * in browsers, so the fallbacks are what keep a plain-HTTP origin able to speak the protocol
+ * at all — see {@link AbstractApiClient.mintRpcId} for why weaker entropy is acceptable here.
+ */
+function randomCorrelationUuid(): string {
+  const webCrypto = globalThis.crypto as Crypto | undefined
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof webCrypto?.getRandomValues === 'function') webCrypto.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  // RFC 4122 §4.4: pin the version (4) and variant (10xx) bits so the id keeps UUID shape.
+  bytes[6] = ((bytes.at(6) ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes.at(8) ?? 0) & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
+/**
  * Abstract fetch-carrier client. Subclasses supply the transport (doFetch) and may refine the
  * per-message tap (onEnvelope) — platform aspects stay in subclasses, protocol invariants stay
  * here. Envelope observation is a first-class aspect of this data middle layer: the instance
@@ -296,8 +315,15 @@ export abstract class AbstractApiClient implements IApiClient {
   }
 
   protected mintRpcId(): RpcId {
-    // crypto.randomUUID is a Web API (browser + Node ≥19): keeps this base platform-neutral.
-    return RpcId(crypto.randomUUID())
+    // crypto.randomUUID is a Web API (browser + Node ≥19), but browsers expose it only in a
+    // SECURE CONTEXT. A page served over plain HTTP from anything other than localhost — a LAN
+    // or VPN address, say — has `crypto` without `randomUUID`, so calling it directly throws a
+    // TypeError on the first unary of the readiness handshake; the connection loop catches that,
+    // aborts the still-connecting event sockets, and reconnects forever with nothing to read but
+    // "connection lost". An rpcId is a correlation token, never a secret and never a capability
+    // (the host echoes it back and matches it per request), so degrading its entropy costs the
+    // protocol nothing while letting a non-secure origin work at all.
+    return RpcId(randomCorrelationUuid())
   }
 
   /**

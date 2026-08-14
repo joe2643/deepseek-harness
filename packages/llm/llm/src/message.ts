@@ -180,8 +180,33 @@ export function createMessage<T extends NewMessage>(
 ): T & Pick<Message, 'id'> {
   return freezeMessage({
     ...input,
-    id: MessageId(crypto.randomUUID()),
+    id: MessageId(randomIdentityUuid()),
   })
+}
+
+/**
+ * v4-shaped identity minted from the strongest source this runtime exposes.
+ *
+ * This module runs in the browser too (the client bundle builds messages before they reach the
+ * host), and browsers expose `crypto.randomUUID` only in a SECURE CONTEXT — a page served over
+ * plain HTTP from a LAN or VPN address has `crypto` without `randomUUID`, so calling it directly
+ * throws a TypeError there. A message id is a local uniqueness token, not a secret and not a
+ * capability, so the weaker sources are an acceptable degradation and a hard failure is not.
+ *
+ * Deliberately duplicated rather than shared: this package is zero-dependency by design, and
+ * `@deepseek-ai/dsh-host-apiproxy` carries the same helper for the same reason.
+ */
+function randomIdentityUuid(): string {
+  const webCrypto = globalThis.crypto as Crypto | undefined
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof webCrypto?.getRandomValues === 'function') webCrypto.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  // RFC 4122 §4.4: pin the version (4) and variant (10xx) bits so the id keeps UUID shape.
+  bytes[6] = ((bytes.at(6) ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes.at(8) ?? 0) & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /**

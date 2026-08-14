@@ -58,11 +58,35 @@ export interface IConversation {
   loadOlder(): Promise<void>
 }
 
+/**
+ * v4-shaped draft id minted from the strongest source this runtime exposes.
+ *
+ * Browsers expose `crypto.randomUUID` only in a SECURE CONTEXT, so on a page served over plain
+ * HTTP from a LAN or VPN address it is simply absent and calling it throws. A draft id never
+ * leaves the tab — it keys a local Map until the image is uploaded — so the weaker sources cost
+ * nothing, while a throw would break every image attachment on such a deployment.
+ *
+ * Deliberately duplicated rather than shared: this package is client-leaf and zero-dependency by
+ * design, matching the copies in `@deepseek-ai/dsh-host-apiproxy` and `@deepseek-ai/dsh-llm`.
+ */
+function randomDraftUuid(): string {
+  const webCrypto = globalThis.crypto as Crypto | undefined
+  if (typeof webCrypto?.randomUUID === 'function') return webCrypto.randomUUID()
+  const bytes = new Uint8Array(16)
+  if (typeof webCrypto?.getRandomValues === 'function') webCrypto.getRandomValues(bytes)
+  else for (let index = 0; index < bytes.length; index += 1) bytes[index] = Math.floor(Math.random() * 256)
+  // RFC 4122 §4.4: pin the version (4) and variant (10xx) bits so the id keeps UUID shape.
+  bytes[6] = ((bytes.at(6) ?? 0) & 0x0f) | 0x40
+  bytes[8] = ((bytes.at(8) ?? 0) & 0x3f) | 0x80
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
+}
+
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
   return {
     kind: 'image',
-    id: crypto.randomUUID() as DraftAttachmentId,
+    id: randomDraftUuid() as DraftAttachmentId,
     previewUrl: URL.createObjectURL(file),
     file,
   }
