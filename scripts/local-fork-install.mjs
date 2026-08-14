@@ -15,6 +15,23 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+/**
+ * Install scripts this tree needs, for npm versions that block them by default.
+ * A published `npm i -g @deepseek-ai/dsh` runs exactly these, so allowing them
+ * here reproduces that install rather than widening it. node-pty is the one
+ * that is not optional: its tarball ships prebuilds for darwin and win32 only,
+ * so on Linux the install script is the only thing that produces `pty.node`,
+ * and without it the package throws on require. Older npm runs install scripts
+ * anyway and ignores this field.
+ */
+const ALLOW_SCRIPTS = {
+  'node-pty': true,
+  koffi: true,
+  esbuild: true,
+  protobufjs: true,
+  '@google/genai': true,
+}
+
 const packed = resolve(process.argv[2] ?? 'dist/npm')
 const target = resolve(process.argv[3] ?? join(process.env.HOME ?? '.', '.dsh-fork'))
 
@@ -42,6 +59,7 @@ writeFileSync(join(target, 'package.json'), `${JSON.stringify({
   private: true,
   dependencies,
   overrides,
+  allowScripts: ALLOW_SCRIPTS,
 }, null, 2)}\n`)
 
 // Optional dependencies stay in: koffi ships its native binary as a per-platform
@@ -54,6 +72,11 @@ execFileSync('npm', ['install', '--no-audit', '--no-fund', '--package-lock=false
   cwd: target,
   stdio: 'inherit',
 })
+
+// node-pty is loaded lazily by the terminal tools, so a missing native binary
+// would otherwise surface as a broken session long after the install claimed
+// success. Prove it resolves while the install is still the thing being run.
+execFileSync(process.execPath, ['-e', 'require("node-pty")'], { cwd: target, stdio: 'inherit' })
 
 const installed = JSON.parse(readFileSync(join(target, 'node_modules/@deepseek-ai/dsh/package.json'), 'utf8'))
 console.log(`installed @deepseek-ai/dsh ${installed.version} at ${target}`)
