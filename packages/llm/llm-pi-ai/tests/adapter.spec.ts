@@ -5,7 +5,11 @@ import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
+  SaveVideoAttachment,
   StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
@@ -27,6 +31,16 @@ const IMAGE_REF: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+
+const VIDEO_REF: VideoAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  mediaType: 'video/mp4',
+  bytes: 4,
+  width: 640,
+  height: 480,
+  durationSeconds: 10,
+  frameRate: 24,
 }
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
@@ -230,6 +244,26 @@ describe('PiAiAdapter provider routing', () => {
 
       readImage(value: ImageAttachmentRef): Promise<StoredImageAttachment> {
         return readImage(value)
+      }
+
+      readonly videoLimits: VideoAttachmentLimits = {
+        maxVideoBytes: 1,
+        maxVideosPerMessage: 1,
+        maxMessageVideoBytes: 1,
+        maxVideoDurationSeconds: 1,
+        mediaTypes: ['video/mp4'],
+      }
+
+      validateVideo(_input: SaveVideoAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
+        return Promise.reject(new Error('not used'))
       }
     }
 
@@ -799,6 +833,37 @@ describe('provider profile lifecycle', () => {
             toolCallId: 'call-inner' as never,
             content: [{ type: 'image', attachment: IMAGE_REF }],
           }],
+        }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
+  it('rejects video input a model or deployment cannot carry', async () => {
+    const adapter = adapterOf({ openai: {}, deepseek: {} })
+    const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
+      for await (const _chunk of adapter.stream(options)) { /* drain */ }
+    }
+
+    // gpt-4.1 declares text+image, never video: the gate refuses before I/O.
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{ type: 'video', attachment: VIDEO_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+
+    // Nested inside a tool result, the recursive walk still finds it.
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{
+          type: 'tool-result',
+          toolCallId: 'call-video' as never,
+          content: [{ type: 'video', attachment: VIDEO_REF }],
         }],
         source: { kind: 'plugin', plugin: 'test' },
       })],

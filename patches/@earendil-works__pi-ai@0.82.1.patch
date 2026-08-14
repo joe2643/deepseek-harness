@@ -1,0 +1,107 @@
+diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
+index ed81baa3860fa20cf9d38885f9dd4b6b2f639045..52e6310a429d9a14f7982162ae506d74560fcdc8 100644
+--- a/dist/api/openai-completions.js
++++ b/dist/api/openai-completions.js
+@@ -814,6 +814,20 @@ export function convertMessages(model, context, compat, options) {
+                             text: sanitizeSurrogates(item.text),
+                         };
+                     }
++                    else if (item.dshVideo === true) {
++                        // Harness video marker. UserMessage.content is typed
++                        // (TextContent | ImageContent)[], so without this branch a
++                        // video falls through to image_url and the provider rejects
++                        // it outright ("The image format is illegal and cannot be
++                        // opened"). Absent the marker this file behaves exactly as
++                        // published, so a request carrying no video is unchanged.
++                        return {
++                            type: "video_url",
++                            video_url: {
++                                url: `data:${item.mimeType};base64,${item.data}`,
++                            },
++                        };
++                    }
+                     else {
+                         return {
+                             type: "image_url",
+@@ -969,15 +983,22 @@ export function convertMessages(model, context, compat, options) {
+                         deferredToolNames.add(name);
+                     }
+                 }
+-                if (hasImages && model.input.includes("image")) {
++                if (hasImages && (model.input.includes("image") || model.input.includes("video"))) {
+                     for (const block of toolMsg.content) {
+                         if (isImageContentBlock(block)) {
+-                            imageBlocks.push({
+-                                type: "image_url",
+-                                image_url: {
+-                                    url: `data:${block.mimeType};base64,${block.data}`,
+-                                },
+-                            });
++                            imageBlocks.push(block.dshVideo === true
++                                ? {
++                                    type: "video_url",
++                                    video_url: {
++                                        url: `data:${block.mimeType};base64,${block.data}`,
++                                    },
++                                }
++                                : {
++                                    type: "image_url",
++                                    image_url: {
++                                        url: `data:${block.mimeType};base64,${block.data}`,
++                                    },
++                                });
+                         }
+                     }
+                 }
+diff --git a/dist/api/transform-messages.js b/dist/api/transform-messages.js
+index 6aa6aa2bb660194e64a06d5dc98f61862311f210..6faf7e81aa34272cc0980b2d32fb0b8e4211fd45 100644
+--- a/dist/api/transform-messages.js
++++ b/dist/api/transform-messages.js
+@@ -4,7 +4,10 @@ function replaceImagesWithPlaceholder(content, placeholder) {
+     const result = [];
+     let previousWasPlaceholder = false;
+     for (const block of content) {
+-        if (block.type === "image") {
++        // A harness video marker is image-typed so it can ride
++        // (TextContent | ImageContent)[]; it must not be downgraded by the
++        // image capability check, which is gated on "image" alone.
++        if (block.type === "image" && block.dshVideo !== true) {
+             if (!previousWasPlaceholder) {
+                 result.push({ type: "text", text: placeholder });
+             }
+@@ -17,7 +20,7 @@ function replaceImagesWithPlaceholder(content, placeholder) {
+     return result;
+ }
+ function downgradeUnsupportedImages(messages, model) {
+-    if (model.input.includes("image")) {
++    if (model.input.includes("image") || model.input.includes("video")) {
+         return messages;
+     }
+     return messages.map((msg) => {
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index 0a1b76919766126f1c8c4a306b24e8096a5e02d0..4f985a22161674e4f2358a4eff44ab3494114a90 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -240,6 +240,13 @@ export interface ImageContent {
+     type: "image";
+     data: string;
+     mimeType: string;
++    /**
++     * DSH patch: marks an entry the OpenAI-completions serializer must emit as
++     * a `video_url` part. `UserMessage.content` admits only text and image, and
++     * an mp4 sent as `image_url` is rejected by the provider outright, so a
++     * video needs a discriminator that travels in the same ordered array.
++     */
++    dshVideo?: boolean;
+ }
+ export interface ToolCall {
+     type: "toolCall";
+@@ -646,7 +653,7 @@ export interface Model<TApi extends Api> {
+      * Missing keys use provider defaults. null marks a level as unsupported.
+      */
+     thinkingLevelMap?: ThinkingLevelMap;
+-    input: ("text" | "image")[];
++    input: ("text" | "image" | "video")[];
+     cost: ModelCost;
+     contextWindow: number;
+     maxTokens: number;

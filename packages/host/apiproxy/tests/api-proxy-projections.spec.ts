@@ -101,6 +101,17 @@ describe('session.history projections block', () => {
       validateImage(): Promise<void> { return Promise.resolve() }
       saveImage(): Promise<never> { return Promise.reject(new Error('unused')) }
       readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
+      readonly videoLimits = {
+        maxVideoBytes: 64 * 1024 * 1024,
+        maxVideosPerMessage: 4,
+        maxMessageVideoBytes: 128 * 1024 * 1024,
+        maxVideoDurationSeconds: 600,
+        mediaTypes: ['video/mp4'] as const,
+      }
+
+      validateVideo(): Promise<void> { return Promise.resolve() }
+      saveVideo(): Promise<never> { return Promise.reject(new Error('unused')) }
+      readVideo(): Promise<never> { return Promise.reject(new Error('unused')) }
     })
     const gateway = api(ctx)
     seedMessages(session, 2)

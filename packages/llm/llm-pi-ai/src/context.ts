@@ -4,11 +4,29 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, contentHasImage, LlmError } from '@deepseek-ai/dsh-llm'
+import { CallId, contentHasImage, contentHasVideo, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
+
+/**
+ * Marker for a video carried inside pi-ai's user-content array.
+ *
+ * pi-ai 0.82 has no video vocabulary: `UserMessage.content` is
+ * `(TextContent | ImageContent)[]`, and its OpenAI-completions serializer maps
+ * every non-text entry to an `image_url` part. An mp4 sent that way is not
+ * merely mislabelled — the provider rejects it outright ("The image format is
+ * illegal and cannot be opened"), so video cannot ride the image path.
+ *
+ * The marker therefore travels in the same ordered array (keeping a video
+ * beside the text that introduces it) and the adapter rewrites it into the
+ * provider's `video_url` part before dispatch.
+ */
+export interface PiVideoContent extends ImageContent {
+  /** Discriminates this adapter's marker from a real image entry. */
+  dshVideo: true
+}
 
 /** Join the text blocks of a harness message. */
 function flattenText(message: Message): string {
@@ -43,6 +61,16 @@ async function userContent(
           data: Buffer.from(stored.data).toString('base64'),
           mimeType: stored.ref.mediaType,
         })
+        break
+      }
+      case 'video': {
+        const stored = await attachments.readVideo(block.attachment)
+        content.push({
+          type: 'image',
+          dshVideo: true,
+          data: Buffer.from(stored.data).toString('base64'),
+          mimeType: stored.ref.mediaType,
+        } satisfies PiVideoContent)
         break
       }
       case 'tool-result':
@@ -90,6 +118,9 @@ function textOnlyContext(options: GenerateOptions): PiContext {
   for (const message of options.messages) {
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    }
+    if (contentHasVideo(message.content)) {
+      throw new LlmError('pi-ai video conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
     if (message.role === 'system') {
       messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
@@ -148,6 +179,9 @@ async function toPiContextWithImages(options: GenerateOptions, attachments: Atta
     if (message.role === 'system') {
       if (contentHasImage(message.content)) {
         throw new LlmError('pi-ai cannot represent an image in an in-history system message', 'UNSUPPORTED_CONTENT')
+      }
+      if (contentHasVideo(message.content)) {
+        throw new LlmError('pi-ai cannot represent a video in an in-history system message', 'UNSUPPORTED_CONTENT')
       }
       // pi-ai has a single systemPrompt slot; in-history system messages are
       // folded into user messages to preserve order (rare in practice — the

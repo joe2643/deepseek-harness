@@ -25,7 +25,16 @@ import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  SaveImageAttachment,
+  SaveVideoAttachment,
+  StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import WebRuntime from '@deepseek-ai/dsh-web'
@@ -84,6 +93,26 @@ class CatalogAttachmentStore extends AttachmentStore {
   }
 
   override readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
+  }
+
+  readonly videoLimits: VideoAttachmentLimits = Object.freeze({
+    maxVideoBytes: 1,
+    maxVideosPerMessage: 1,
+    maxMessageVideoBytes: 1,
+    maxVideoDurationSeconds: 1,
+    mediaTypes: Object.freeze(['video/mp4'] as const),
+  })
+
+  override validateVideo(_input: SaveVideoAttachment): Promise<void> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment validation is unreachable during schema harvest'))
+  }
+
+  override saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment writes are unreachable during schema harvest'))
+  }
+
+  override readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
     return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
   }
 }

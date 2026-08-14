@@ -34,6 +34,7 @@ import type {
 import {
   attributionHeaders,
   contentHasImage,
+  contentHasVideo,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -303,9 +304,14 @@ export class PiAiAdapter extends LlmAdapter {
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
-      const attachments = containsImage ? this.config.resolveAttachments?.() : undefined
-      if (containsImage && attachments === undefined) {
-        throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      const containsVideo = options.messages.some(message => contentHasVideo(message.content))
+      if (containsVideo && !model.input.includes('video')) {
+        throw new LlmError(`pi-ai model "${model.id}" does not support video input`, 'UNSUPPORTED_CONTENT')
+      }
+      const needsAttachments = containsImage || containsVideo
+      const attachments = needsAttachments ? this.config.resolveAttachments?.() : undefined
+      if (needsAttachments && attachments === undefined) {
+        throw new LlmError('pi-ai image and video input require the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
       const context = attachments === undefined
         ? toPiContext(options)

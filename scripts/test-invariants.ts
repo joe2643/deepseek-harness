@@ -13,7 +13,11 @@ import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
+  SaveVideoAttachment,
   StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 
@@ -130,6 +134,26 @@ class TestAttachmentStore extends AttachmentStore {
 
   readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
     return Promise.reject(new Error('test invariant attachment store does not read images'))
+  }
+
+  readonly videoLimits: VideoAttachmentLimits = {
+    maxVideoBytes: 1,
+    maxVideosPerMessage: 1,
+    maxMessageVideoBytes: 1,
+    maxVideoDurationSeconds: 1,
+    mediaTypes: ['video/mp4'],
+  }
+
+  validateVideo(_input: SaveVideoAttachment): Promise<void> {
+    return Promise.reject(new Error('test invariant attachment store does not validate videos'))
+  }
+
+  saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+    return Promise.reject(new Error('test invariant attachment store does not save videos'))
+  }
+
+  readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
+    return Promise.reject(new Error('test invariant attachment store does not read videos'))
   }
 }
 

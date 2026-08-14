@@ -42,6 +42,7 @@ export type PiAiModality = Model<Api>['input'][number]
 const MODALITY_GATE: Record<PiAiModality, true> = {
   text: true,
   image: true,
+  video: true,
 }
 
 /** Every request modality a profile may declare. */

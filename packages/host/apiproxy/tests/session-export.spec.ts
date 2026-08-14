@@ -109,6 +109,13 @@ async function buildApi(
       validateImage: async () => {},
       saveImage: async () => { throw new Error('export never saves images') },
       readImage,
+      videoLimits: {} as never,
+      validateVideo: async () => {},
+      saveVideo: async () => { throw new Error('export never saves videos') },
+      readVideo: async (ref: { attachmentId: unknown }) => ({
+        ref,
+        data: new Uint8Array([9, 8, 7, 6]),
+      }),
     } as never)
   }
   if (services.sessions !== undefined) ctx.provide('sessions', services.sessions as never)
@@ -617,6 +624,26 @@ describe('session.export download endpoint', () => {
     const files = unzipSync(await responseBytes(response))
     expect(Object.keys(files).sort()).toEqual(['media/img-1.png', 'session.jsonl'])
     expect(files['media/img-1.png']).toEqual(storedImage('img-1').data)
+  })
+
+  it('exports a referenced video through the video read path', async () => {
+    // A video ref must resolve through readVideo, not readImage: the store
+    // verifies bytes against the recorded reference per media kind.
+    const line = '{"type":"user/message","seq":1,"time":1000,"data":{"content":[{"type":"video",'
+      + '"attachment":{"attachmentId":"vid-1","mediaType":"video/mp4","bytes":4,"width":640,'
+      + '"height":480,"durationSeconds":10,"frameRate":24}}]}}'
+    const root = artifact('session-root', undefined, [
+      '{"type":"session","version":0,"id":"session-root","createdAt":1000}',
+      line,
+    ].join('\n') + '\n')
+    const api = await buildApi({ 'session-root': root })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    expect(response.status).toBe(200)
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual(['media/vid-1.mp4', 'session.jsonl'])
+    expect(files['media/vid-1.mp4']).toEqual(new Uint8Array([9, 8, 7, 6]))
   })
 
   it('collects media referenced from nested tool results', async () => {

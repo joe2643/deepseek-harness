@@ -6,7 +6,11 @@ import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
+  SaveVideoAttachment,
   StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
@@ -86,6 +90,26 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
           return Promise.reject(new Error('unknown e2e attachment fixture'))
         }
         return Promise.resolve(fixture)
+      }
+
+      readonly videoLimits: VideoAttachmentLimits = {
+        maxVideoBytes: 1,
+        maxVideosPerMessage: 1,
+        maxMessageVideoBytes: 1,
+        maxVideoDurationSeconds: 1,
+        mediaTypes: ['video/mp4'],
+      }
+
+      validateVideo(_input: SaveVideoAttachment): Promise<void> {
+        return Promise.reject(new Error('e2e attachment fixture is read-only'))
+      }
+
+      saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+        return Promise.reject(new Error('e2e attachment fixture is read-only'))
+      }
+
+      readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
+        return Promise.reject(new Error('e2e attachment fixture carries no video'))
       }
     }
     await ctx.plugin(E2eAttachmentStore)

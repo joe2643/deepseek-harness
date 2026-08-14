@@ -21,7 +21,16 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  SaveImageAttachment,
+  SaveVideoAttachment,
+  StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   applyReadImageTool,
@@ -350,6 +359,26 @@ describe('argument and service preconditions', () => {
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
       }
+
+      readonly videoLimits: VideoAttachmentLimits = Object.freeze({
+        maxVideoBytes: 1024,
+        maxVideosPerMessage: 1,
+        maxMessageVideoBytes: 1024,
+        maxVideoDurationSeconds: 60,
+        mediaTypes: Object.freeze(['video/mp4'] as const),
+      })
+
+      validateVideo(_input: SaveVideoAttachment): Promise<void> {
+        throw new Error('unreachable: this suite exercises images only')
+      }
+
+      saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+        throw new Error('unreachable: this suite exercises images only')
+      }
+
+      readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
+        throw new Error('unreachable: this suite exercises images only')
+      }
     }
     const ctx = await setup({ attachments: false })
     await ctx.plugin(JpegOnlyStore)
@@ -428,6 +457,26 @@ describe('image admission failures', () => {
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
+      }
+
+      readonly videoLimits: VideoAttachmentLimits = Object.freeze({
+        maxVideoBytes: 1024,
+        maxVideosPerMessage: 1,
+        maxMessageVideoBytes: 1024,
+        maxVideoDurationSeconds: 60,
+        mediaTypes: Object.freeze(['video/mp4'] as const),
+      })
+
+      validateVideo(_input: SaveVideoAttachment): Promise<void> {
+        throw new Error('unreachable: this suite exercises images only')
+      }
+
+      saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+        throw new Error('unreachable: this suite exercises images only')
+      }
+
+      readVideo(_ref: VideoAttachmentRef): Promise<StoredVideoAttachment> {
+        throw new Error('unreachable: this suite exercises images only')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)

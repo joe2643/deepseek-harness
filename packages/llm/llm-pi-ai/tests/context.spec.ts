@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { CallId, createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
@@ -14,8 +14,19 @@ const ref: ImageAttachmentRef = {
   height: 1,
 }
 
+const videoRef: VideoAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  mediaType: 'video/mp4',
+  bytes: 4,
+  width: 640,
+  height: 480,
+  durationSeconds: 10,
+  frameRate: 24,
+}
+
 const attachments = {
   readImage: vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(1) })),
+  readVideo: vi.fn(() => Promise.resolve({ ref: videoRef, data: Uint8Array.of(1, 2, 3, 4) })),
 } as unknown as AttachmentStore
 
 function request(messages: GenerateOptions['messages']): GenerateOptions {
@@ -78,6 +89,34 @@ describe('pi-ai request context conversion', () => {
       toolCallId: callId,
       content: [{ type: 'image', attachment: ref }],
     }])]))).toThrow(/durable attachment service/)
+  })
+
+  it('refuses video without the durable attachment service', () => {
+    expect(() => toPiContext(request([user([{ type: 'video', attachment: videoRef }])])))
+      .toThrow(/video conversion requires the durable attachment service/)
+  })
+
+  it('refuses a video inside an in-history system message', async () => {
+    await expect(toPiContext(
+      request([history('system', [{ type: 'video', attachment: videoRef }])]),
+      attachments,
+    )).rejects.toThrow(/cannot represent a video in an in-history system message/)
+  })
+
+  it('converts a video block into the marker the serializer rewrites to video_url', async () => {
+    const context = await toPiContext(
+      request([user([{ type: 'text', text: 'what happens here' }, { type: 'video', attachment: videoRef }])]),
+      attachments,
+    )
+    expect(context.messages[0]).toMatchObject({
+      role: 'user',
+      content: [
+        { type: 'text', text: 'what happens here' },
+        // image-typed so it rides pi-ai's (TextContent | ImageContent)[];
+        // dshVideo is what the patched serializer keys on.
+        { type: 'image', dshVideo: true, mimeType: 'video/mp4', data: 'AQIDBA==' },
+      ],
+    })
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {

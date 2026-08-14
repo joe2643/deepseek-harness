@@ -12,9 +12,14 @@ import type {
   ImageAttachmentLimits,
   ImageAttachmentRef,
   SaveImageAttachment,
+  SaveVideoAttachment,
   StoredImageAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import { detectImage, probeImage } from './image.ts'
+import { probeVideo } from './video.ts'
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
@@ -37,7 +42,7 @@ function objectPath(root: string, sha256: string): string {
   return join(root, 'objects', sha256.slice(0, 2), sha256)
 }
 
-function ensureReference(ref: ImageAttachmentRef): string {
+function ensureReference(ref: ImageAttachmentRef | VideoAttachmentRef): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
   return match[1]
@@ -127,16 +132,17 @@ async function ensureDurableHome(path: string): Promise<string> {
 }
 
 /**
- * Save and verify immutable image bytes below a versioned attachment root.
+ * Persist immutable bytes below a versioned attachment root and return their
+ * content address. Media-neutral: admission policy runs in the caller, so the
+ * image and video paths share one durability ladder (staging write, fsync,
+ * link publication, directory fsync) instead of maintaining two copies of it.
  * @param root - absolute `DSH_HOME/attachments/v1` root.
- * @param input - encoded bytes and declared metadata.
- * @param limits - resolved storage policy.
- * @returns durable content-addressed reference.
+ * @param data - complete encoded bytes, already validated by the caller.
+ * @param kind - noun used in a write-failure message ("image" / "video").
+ * @returns the hex sha256 the bytes were published under.
  */
-export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
-  if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
-  const metadata = await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
-  const sha256 = digest(input.data)
+async function persistBytes(root: string, data: Uint8Array, kind: string): Promise<string> {
+  const sha256 = digest(data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
   // Establish DSH_HOME itself against the filesystem root once per process.
@@ -150,7 +156,7 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
   let handle
   try {
     handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
-    await handle.writeFile(input.data)
+    await handle.writeFile(data)
     await handle.sync()
     await handle.close()
     handle = undefined
@@ -183,8 +189,22 @@ export async function saveImageFile(root: string, input: SaveImageAttachment, li
       },
     )
     if (error instanceof AttachmentError) throw error
-    throw new AttachmentError('Unable to persist image attachment.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
+    throw new AttachmentError(`Unable to persist ${kind} attachment.`, 'ATTACHMENT_WRITE_FAILED', { cause: error })
   }
+  return sha256
+}
+
+/**
+ * Save and verify immutable image bytes below a versioned attachment root.
+ * @param root - absolute `DSH_HOME/attachments/v1` root.
+ * @param input - encoded bytes and declared metadata.
+ * @param limits - resolved storage policy.
+ * @returns durable content-addressed reference.
+ */
+export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
+  if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
+  const metadata = await inspectMetadata(input.data, input.mediaType, limits.maxImagePixels)
+  const sha256 = await persistBytes(root, input.data, 'image')
   const name = displayName(input.name)
   return {
     attachmentId: AttachmentId(`sha256:${sha256}`),
@@ -222,6 +242,106 @@ export async function readImageFile(
   // the read path only re-derives the header fields (no raster decode, no
   // per-request pixel amplification on history replay).
   const metadata = await probeImage(data)
+  signal?.throwIfAborted()
+  if (metadata.mediaType !== ref.mediaType || data.byteLength !== ref.bytes
+    || metadata.width !== ref.width || metadata.height !== ref.height) {
+    throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
+  }
+  return { ref, data }
+}
+
+/**
+ * Probe one video and confirm it matches the caller's declaration.
+ *
+ * Container inspection is structural (box tree only, never a frame decode), so
+ * unlike the image path there is no decoded-pixel amplification to bound; the
+ * limits that matter for a video are bytes and duration, both checked here.
+ * @param data - complete encoded bytes.
+ * @param declaredMediaType - the caller's claimed container.
+ * @param limits - resolved storage policy.
+ * @returns the reference fields derived from the bytes.
+ */
+function inspectVideoMetadata(
+  data: Uint8Array,
+  declaredMediaType: VideoAttachmentRef['mediaType'],
+  limits: VideoAttachmentLimits,
+): Omit<VideoAttachmentRef, 'attachmentId' | 'name'> {
+  if (data.byteLength === 0) throw new AttachmentError('Video is empty.', 'INVALID_VIDEO')
+  const detected = probeVideo(data)
+  if (detected.mediaType !== declaredMediaType) {
+    throw new AttachmentError('Declared video type does not match its bytes.', 'VIDEO_TYPE_MISMATCH')
+  }
+  if (detected.durationSeconds > limits.maxVideoDurationSeconds) {
+    throw new AttachmentError('Video exceeds the configured duration limit.', 'VIDEO_TOO_LONG')
+  }
+  return { ...detected, bytes: data.byteLength }
+}
+
+/**
+ * Run the full admission policy for one video without touching storage.
+ * @param input - encoded bytes and declared metadata.
+ * @param limits - resolved storage policy.
+ * @returns completion after the container has been probed.
+ */
+export async function validateVideoFile(input: SaveVideoAttachment, limits: VideoAttachmentLimits): Promise<void> {
+  if (input.data.byteLength > limits.maxVideoBytes) {
+    throw new AttachmentError('Video exceeds the configured byte limit.', 'VIDEO_TOO_LARGE')
+  }
+  await Promise.resolve()
+  inspectVideoMetadata(input.data, input.mediaType, limits)
+}
+
+/**
+ * Save and verify immutable video bytes below a versioned attachment root.
+ * @param root - absolute `DSH_HOME/attachments/v1` root.
+ * @param input - encoded bytes and declared metadata.
+ * @param limits - resolved storage policy.
+ * @returns durable content-addressed reference carrying geometry and timing.
+ */
+export async function saveVideoFile(
+  root: string,
+  input: SaveVideoAttachment,
+  limits: VideoAttachmentLimits,
+): Promise<VideoAttachmentRef> {
+  if (input.data.byteLength > limits.maxVideoBytes) {
+    throw new AttachmentError('Video exceeds the configured byte limit.', 'VIDEO_TOO_LARGE')
+  }
+  const metadata = inspectVideoMetadata(input.data, input.mediaType, limits)
+  const sha256 = await persistBytes(root, input.data, 'video')
+  const name = displayName(input.name)
+  return {
+    attachmentId: AttachmentId(`sha256:${sha256}`),
+    ...metadata,
+    ...(name !== undefined ? { name } : {}),
+  }
+}
+
+/**
+ * Read and verify one content-addressed video.
+ * @param root - absolute `DSH_HOME/attachments/v1` root.
+ * @param ref - reference recorded in the session log.
+ * @param signal - optional cancellation for filesystem and verification work.
+ * @returns verified bytes and reference.
+ * @throws the signal reason when aborted, or an AttachmentError when verification fails.
+ */
+export async function readVideoFile(
+  root: string,
+  ref: VideoAttachmentRef,
+  signal?: AbortSignal,
+): Promise<StoredVideoAttachment> {
+  signal?.throwIfAborted()
+  const sha256 = ensureReference(ref)
+  let data: Uint8Array
+  try {
+    data = new Uint8Array(await readFile(objectPath(root, sha256), { signal }))
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
+    throw new AttachmentError('Unable to read video attachment.', 'ATTACHMENT_READ_FAILED', { cause: error })
+  }
+  signal?.throwIfAborted()
+  if (digest(data) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
+  const metadata = probeVideo(data)
   signal?.throwIfAborted()
   if (metadata.mediaType !== ref.mediaType || data.byteLength !== ref.bytes
     || metadata.width !== ref.width || metadata.height !== ref.height) {

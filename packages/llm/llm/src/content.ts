@@ -14,3 +14,16 @@ export function contentHasImage(content: readonly ContentBlock[]): boolean {
   return content.some(block => block.type === 'image'
     || (block.type === 'tool-result' && contentHasImage(block.content)))
 }
+
+/**
+ * True when typed model content contains a video block, walking nested
+ * tool-result content. The video twin of {@link contentHasImage}: one
+ * recursive walk shared by capability gating and text-only serialization, so
+ * no consumer diverges on nesting depth.
+ * @param content - typed model content blocks.
+ * @returns whether any nested block is a video.
+ */
+export function contentHasVideo(content: readonly ContentBlock[]): boolean {
+  return content.some(block => block.type === 'video'
+    || (block.type === 'tool-result' && contentHasVideo(block.content)))
+}

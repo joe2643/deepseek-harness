@@ -146,6 +146,20 @@ describe('serializeMessages', () => {
     })])).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
   })
 
+  it('rejects video blocks instead of silently flattening them away', () => {
+    expect(() => serializeMessages([createUserMessage({
+      content: [{
+        type: 'video',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'b'.repeat(64)}`),
+          mediaType: 'video/mp4', bytes: 1024, width: 640, height: 480,
+          durationSeconds: 10, frameRate: 24,
+        },
+      }],
+      source: { kind: 'plugin', plugin: 'test' },
+    })])).toThrow(expect.objectContaining({ code: 'UNSUPPORTED_CONTENT' }))
+  })
+
   it('emits an empty user message rather than dropping block-less messages', () => {
     const wire = serializeMessages([createUserMessage({
       content: [],

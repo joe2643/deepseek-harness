@@ -21,7 +21,7 @@
 
 import { Zip, ZipDeflate } from 'fflate'
 import type { Context } from '@deepseek-ai/cordis'
-import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionLineageNode, SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import type { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence, SessionRawArtifact } from '@deepseek-ai/dsh-session-persistence'
@@ -90,11 +90,21 @@ export type SessionLogZipEntry =
   | { readonly path: string; readonly data: Uint8Array }
 
 /** Zip extension for each accepted raster media type. */
-const MEDIA_TYPE_EXTENSIONS: Record<ImageAttachmentRef['mediaType'], string> = {
+const MEDIA_TYPE_EXTENSIONS: Record<MediaAttachmentRef['mediaType'], string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/webp': 'webp',
   'image/gif': 'gif',
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+}
+
+/** Either durable media kind an exported session can reference. */
+type MediaAttachmentRef = ImageAttachmentRef | VideoAttachmentRef
+
+/** True when a collected reference names a video rather than an image. */
+function isVideoRef(ref: MediaAttachmentRef): ref is VideoAttachmentRef {
+  return ref.mediaType.startsWith('video/')
 }
 
 /**
@@ -104,7 +114,7 @@ const MEDIA_TYPE_EXTENSIONS: Record<ImageAttachmentRef['mediaType'], string> = {
  * @param ref - the durable reference from a session log.
  * @returns the archive path.
  */
-function mediaEntryPath(ref: ImageAttachmentRef): string {
+function mediaEntryPath(ref: MediaAttachmentRef): string {
   return `media/${String(ref.attachmentId)}.${MEDIA_TYPE_EXTENSIONS[ref.mediaType]}`
 }
 
@@ -114,7 +124,7 @@ function mediaEntryPath(ref: ImageAttachmentRef): string {
  * @param content - an event content array (or nested tool-result content).
  * @param refs - the dedupe map being filled (keyed by attachment id).
  */
-function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef>): void {
+function collectImageRefs(content: unknown, refs: Map<string, MediaAttachmentRef>): void {
   if (!Array.isArray(content)) return
   const pending: unknown[] = []
   for (const item of content) pending.push(item)
@@ -122,8 +132,9 @@ function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef
     const value = pending.pop()
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
     const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
-    if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
-      const ref = block.attachment as ImageAttachmentRef
+    if ((block.type === 'image' || block.type === 'video')
+      && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as MediaAttachmentRef
       refs.set(String(ref.attachmentId), ref)
     }
     if (Array.isArray(block.content)) {
@@ -139,7 +150,7 @@ function collectImageRefs(content: unknown, refs: Map<string, ImageAttachmentRef
  * @param event - one parsed JSONL event object.
  * @param refs - the dedupe map being filled (keyed by attachment id).
  */
-function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachmentRef>): void {
+function collectEventImageRefs(event: unknown, refs: Map<string, MediaAttachmentRef>): void {
   const data = (event as { data?: unknown }).data
   if (typeof data !== 'object' || data === null) return
   const carrier = data as {
@@ -163,8 +174,8 @@ function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachment
  * @param content - the stored artifact text.
  * @returns the dedupe map keyed by attachment id.
  */
-function imageRefsInArtifact(content: string): Map<string, ImageAttachmentRef> {
-  const refs = new Map<string, ImageAttachmentRef>()
+function imageRefsInArtifact(content: string): Map<string, MediaAttachmentRef> {
+  const refs = new Map<string, MediaAttachmentRef>()
   for (const line of content.split('\n')) {
     if (line === '') continue
     let event: unknown
@@ -223,7 +234,7 @@ export async function* sessionLogZipEntries(
   includeDescendants: boolean,
   signal?: AbortSignal,
 ): AsyncGenerator<SessionLogZipEntry> {
-  const media = new Map<string, ImageAttachmentRef>()
+  const media = new Map<string, MediaAttachmentRef>()
   const rememberMedia = (content: string): void => {
     for (const [id, ref] of imageRefsInArtifact(content)) media.set(id, ref)
   }
@@ -259,7 +270,9 @@ export async function* sessionLogZipEntries(
   }
   for (const ref of media.values()) {
     signal?.throwIfAborted()
-    const stored = await deps.attachments.readImage(ref, signal)
+    const stored = isVideoRef(ref)
+      ? await deps.attachments.readVideo(ref, signal)
+      : await deps.attachments.readImage(ref, signal)
     signal?.throwIfAborted()
     yield { path: mediaEntryPath(ref), data: stored.data }
   }

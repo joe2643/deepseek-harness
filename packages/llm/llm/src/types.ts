@@ -5,7 +5,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message } from './message.ts'
 
@@ -74,6 +74,24 @@ export interface ImageBlock {
   attachment: ImageAttachmentRef
 }
 
+/**
+ * A durable video reference, valid in user content.
+ *
+ * Unlike {@link ImageBlock} this is deliberately NOT role-neutral in practice:
+ * no adapter declares video output, so it only ever travels toward a model.
+ *
+ * A provider decides its own frame sampling for a video it receives, and that
+ * rate is neither reported nor controllable through this seam — a sub-second
+ * event can fall entirely between a provider's samples. A caller that needs a
+ * guaranteed temporal resolution samples frames itself and sends
+ * {@link ImageBlock}s instead.
+ */
+export interface VideoBlock {
+  type: 'video'
+  /** Immutable bytes plus intrinsic geometry and timing owned by the attachment service. */
+  attachment: VideoAttachmentRef
+}
+
 /** A tool invocation requested by the model. */
 export interface ToolCallBlock {
   type: 'tool-call'
@@ -100,6 +118,7 @@ export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
   'image': ImageBlock
+  'video': VideoBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }
@@ -152,6 +171,7 @@ export interface LlmProviderInfo {
 export interface ModelModalityMap {
   text: 'text'
   image: 'image'
+  video: 'video'
 }
 
 /** Any declared provider model modality. */
