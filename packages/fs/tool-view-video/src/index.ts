@@ -167,7 +167,7 @@ export function apply(ctx: Context, config: Config): void {
           },
         },
       },
-      render: (_args, value) => viewVideoContent(value as unknown as ViewVideoValue),
+      render: (_args, value) => viewVideoContent(value),
     },
     isConcurrencySafe: () => true,
     presentCall: (args: { file_path: string }) => ({
@@ -203,8 +203,9 @@ export function apply(ctx: Context, config: Config): void {
         ...args.label === undefined ? {} : { label: args.label },
       })
 
-      const first = plan.picked[0] ?? 0
-      const last = plan.picked.at(-1) ?? first
+      // planSampling always admits at least the window's first frame.
+      const [first] = plan.picked as [number, ...number[]]
+      const last = plan.picked[plan.picked.length - 1]
       const leaf = path.slice(path.lastIndexOf('/') + 1)
       const ref = await ctx.attachments.saveImage({
         data,
@@ -230,7 +231,8 @@ export function apply(ctx: Context, config: Config): void {
           bytes: ref.bytes,
           width: ref.width,
           height: ref.height,
-          ...ref.name === undefined ? {} : { name: ref.name },
+          // The save above always supplies a name, so the store always echoes one.
+          name: ref.name as string,
         },
       }
     },

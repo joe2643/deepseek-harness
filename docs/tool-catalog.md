@@ -24,6 +24,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`, `ctx.terminals`, `an owning Agent at execution time` | `tool/call`, `PTY shell state`, `tool/result` | - | One owner-isolated persistent bash tool; deployment composition supplies the PTY backend and may override the model-facing environment description. |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`, `ctx.fs` | `tool/call`, `fs/observed after view presence/absence, edit absence, or successful mutation`, `tool/result` | - | Standalone view/create/unique literal replace/line insert tool over the filesystem seam; it composes with any shell or terminal API. |
 | `@deepseek-ai/dsh-tool-fs` | `edit`, `read`, `read_image`, `write` | `ctx.tools`, `ctx.fs`, `ctx.systemPrompt`, `ctx.attachments (read_image registration)`, `ctx.llm + an image-capable route (read_image execution)` | `tool/call`, `fs/write-intent or fs/edit-intent for mutations`, `fs/observed after read presence/absence or successful file operation`, `durable attachment (read_image)`, `tool/result` | - | The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input. |
+| `@deepseek-ai/dsh-tool-view-video` | `view_video` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments` | `tool/call`, `durable image attachment (the rendered sheet)`, `tool/result` | - | view_video samples a clip into one labelled contact sheet and returns it as an image block, so the caller — not the provider — chooses the frame stride. It needs `ffmpeg` and `ffprobe` on the host PATH, and an image-capable route to be useful. |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`, `grep` | `ctx.tools`, `ctx.subprocess`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | glob and grep are unconditional discovery tools that spawn the packaged ripgrep binary (`@vscode/ripgrep`) through ctx.subprocess as ordinary foreground calls (never background jobs) — no host `rg` install and no shell layer. The catalog uses `sampleOverCapGlobResults: true`; deployments must choose that behavior explicitly. Capped results save the complete formatted list through the optional ctx.spillStore backend; returned locators are follow-up-readable/searchable when the backend exposes local paths in co-located deployments. |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`, `terminal_list`, `terminal_open`, `terminal_read`, `terminal_send`, `terminal_signal` | `ctx.tools`, `ctx.terminals`, `ctx.systemPrompt`, `ctx.jobs at call time for run_in_background` | `tool/call`, `tool/result` | - | The six terminal tools are opt-in and complement one-shot shell/filesystem tools. `terminal_send(run_in_background: true)` registers with `ctx.jobs`; TUI, named key sequences, BEL, resize, auto-start, and cross-agent sharing are absent from the schema. |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`, `get_goal`, `update_goal` | `ctx.tools`, `ctx.agents`, `ctx.goals`, `ctx.systemPrompt`, `a calling Agent in an authorized open turn` | `tool/call`, `goal/change for mutations`, `tool/result` | - | create, edit, pause, and resume require direct-human root authority; complete and blocked also accept the exact current goal round. The default blocked lower bound is three admitted rounds. |
@@ -712,6 +713,57 @@ Create or fully replace a UTF-8 text file.
 Source: [`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
 The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.
+
+<a id="deepseek-aidsh-tool-view-video"></a>
+
+## `@deepseek-ai/dsh-tool-view-video`
+
+### `view_video`
+
+Watch a video file by sampling it into labelled contact-sheet image(s) that enter context as real images. Every tile is captioned with its true source frame number and timestamp. Use start/end plus count to control the sampling rate: the default spreads count frames over the whole clip, while a narrow window with a high count reaches stride 1 (every frame), making sub-second events such as a 0.3s blink visible. Requires an image-capable model.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Absolute or workspace-relative path to the video file."
+    },
+    "count": {
+      "type": "number",
+      "description": "How many frames to sample, 1-64. Default 16."
+    },
+    "start": {
+      "type": "number",
+      "description": "Window start in seconds. Default 0."
+    },
+    "end": {
+      "type": "number",
+      "description": "Window end in seconds. Default: end of clip."
+    },
+    "columns": {
+      "type": "number",
+      "description": "Tiles per row, 1-8. Default 4."
+    },
+    "tile_width": {
+      "type": "number",
+      "description": "Pixel width per tile, 96-480. Default 216."
+    },
+    "label": {
+      "type": "string",
+      "description": "Optional short caption appended to every tile."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+Source: [`packages/fs/tool-view-video/src/index.ts`](../packages/fs/tool-view-video/src/index.ts)
+
+view_video samples a clip into one labelled contact sheet and returns it as an image block, so the caller — not the provider — chooses the frame stride. It needs `ffmpeg` and `ffprobe` on the host PATH, and an image-capable route to be useful.
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 

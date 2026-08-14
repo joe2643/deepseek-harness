@@ -26,6 +26,7 @@
 | `@deepseek-ai/dsh-tool-bash-persistent` | `bash` | `ctx.tools`、`ctx.terminals`、`an owning Agent at execution time` | `tool/call`、`PTY shell state`、`tool/result` | - | 一个按所有者隔离的持久 bash 工具；部署组合提供 PTY 后端，并可覆盖面向模型的环境描述。 |
 | `@deepseek-ai/dsh-tool-str-replace-editor` | `str_replace_editor` | `ctx.tools`、`ctx.fs` | `tool/call`、`fs/observed after view presence/absence, edit absence, or successful mutation`、`tool/result` | - | 基于文件系统 seam 的独立查看／创建／唯一字面量替换／按行插入工具；可与任何 shell 或终端接口组合。 |
 | `@deepseek-ai/dsh-tool-fs` | `edit`、`read`、`read_image`、`write` | `ctx.tools`、`ctx.fs`、`ctx.systemPrompt`、`ctx.attachments (read_image registration)`、`ctx.llm + an image-capable route (read_image execution)` | `tool/call`、`fs/write-intent or fs/edit-intent for mutations`、`fs/observed after read presence/absence or successful file operation`、`durable attachment (read_image)`、`tool/result` | - | 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。 |
+| `@deepseek-ai/dsh-tool-view-video` | `view_video` | `ctx.tools`、`ctx.fs`、`ctx.subprocess`、`ctx.attachments` | `tool/call`、`durable image attachment (the rendered sheet)`、`tool/result` | - | view_video 把片段采样成一张带标注的联系表并以图片块返回，因此选择帧步长的是调用方而非提供方。它需要宿主 PATH 上有 `ffmpeg` 与 `ffprobe`，并需要一条支持图片的路由才有意义。 |
 | `@deepseek-ai/dsh-tool-fs-search` | `glob`、`grep` | `ctx.tools`、`ctx.subprocess`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | glob 和 grep 是无条件可用的发现工具，通过 ctx.subprocess spawn 随包提供的 ripgrep 二进制文件（`@vscode/ripgrep`），并作为普通前台调用运行，绝不作为后台任务；无需在宿主机安装 `rg`，也不经过 shell 层。本目录使用 `sampleOverCapGlobResults: true`；部署必须显式选择该行为。结果超过上限时，会通过可选的 ctx.spillStore 后端保存完整的格式化列表；在共置部署中，如果后端公开本地路径，返回的定位信息可供后续读取／搜索。 |
 | `@deepseek-ai/dsh-tool-terminal` | `terminal_close`、`terminal_list`、`terminal_open`、`terminal_read`、`terminal_send`、`terminal_signal` | `ctx.tools`、`ctx.terminals`、`ctx.systemPrompt`、`ctx.jobs at call time for run_in_background` | `tool/call`、`tool/result` | - | 这 6 个终端工具需要选择启用，用于补充一次性 bash／文件系统工具。`terminal_send(run_in_background: true)` 会注册到 `ctx.jobs`；schema 不包含 TUI、具名按键序列、BEL、调整尺寸、自动启动和跨 agent 共享。 |
 | `@deepseek-ai/dsh-tool-goal` | `create_goal`、`get_goal`、`update_goal` | `ctx.tools`、`ctx.agents`、`ctx.goals`、`ctx.systemPrompt`、`a calling Agent in an authorized open turn` | `tool/call`、`goal/change for mutations`、`tool/result` | - | create、edit、pause 和 resume 要求直接来自人类的根权限；complete 和 blocked 也接受确切的当前 Goal Round。blocked 的默认下限是 3 个获准的 Round。 |
@@ -716,6 +717,57 @@ pwsh 工具是 Windows 组合中 bash 执行器 seam 的 PowerShell 方言消费
 来源：[`packages/fs/tool-fs/src/index.ts`](../packages/fs/tool-fs/src/index.ts)
 
 先读后写／编辑策略由 `@deepseek-ai/dsh-fs-observation-policy` 添加；它是一个 `fs/*` 事件门禁插件，不会改变 schema。加载这些工具的部署按预期也应加载该插件。没有 `ctx.attachments` 时 `read_image` 不会注册；其 schema 与路由无关，执行时除非确切路由的模型声明图像输入，否则拒绝。
+
+<a id="deepseek-aidsh-tool-view-video"></a>
+
+## `@deepseek-ai/dsh-tool-view-video`
+
+### `view_video`
+
+通过把视频采样成带标注的联系表图片来观看它，这些图片以真实图片进入上下文。每一格都标注其真实源帧号与时间戳。用 start/end 配合 count 控制采样率：默认把 count 帧铺满整段片子，而窄窗口配合高 count 可让步长降到 1（每一帧），从而让 0.3 秒眨眼这类亚秒事件变得可见。需要支持图片的模型。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "file_path": {
+      "type": "string",
+      "description": "Absolute or workspace-relative path to the video file."
+    },
+    "count": {
+      "type": "number",
+      "description": "How many frames to sample, 1-64. Default 16."
+    },
+    "start": {
+      "type": "number",
+      "description": "Window start in seconds. Default 0."
+    },
+    "end": {
+      "type": "number",
+      "description": "Window end in seconds. Default: end of clip."
+    },
+    "columns": {
+      "type": "number",
+      "description": "Tiles per row, 1-8. Default 4."
+    },
+    "tile_width": {
+      "type": "number",
+      "description": "Pixel width per tile, 96-480. Default 216."
+    },
+    "label": {
+      "type": "string",
+      "description": "Optional short caption appended to every tile."
+    }
+  },
+  "required": [
+    "file_path"
+  ]
+}
+```
+
+来源：[`packages/fs/tool-view-video/src/index.ts`](../packages/fs/tool-view-video/src/index.ts)
+
+view_video 把片段采样成一张带标注的联系表并以图片块返回，因此选择帧步长的是调用方而非提供方。它需要宿主 PATH 上有 `ffmpeg` 与 `ffprobe`，并需要一条支持图片的路由才有意义。
 
 <a id="deepseek-aidsh-tool-fs-search"></a>
 

@@ -56,6 +56,7 @@ import CordisHostRunner from '@deepseek-ai/dsh-cordis-host-runner'
 import * as ToolCordis from '@deepseek-ai/dsh-tool-cordis'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import * as ToolFsSearch from '@deepseek-ai/dsh-tool-fs-search'
+import * as ToolViewVideo from '@deepseek-ai/dsh-tool-view-video'
 import * as ToolStrReplaceEditor from '@deepseek-ai/dsh-tool-str-replace-editor'
 import TerminalSessionService from '@deepseek-ai/dsh-terminal'
 import * as ToolPty from '@deepseek-ai/dsh-tool-terminal'
@@ -338,6 +339,23 @@ const TOOL_PACKAGES: ToolPackage[] = [
     },
     note:
       'The read-before-write/edit policy is added by `@deepseek-ai/dsh-fs-observation-policy` (an `fs/*` event-gate plugin, no schema change); a deployment that loads these tools is expected to also load it. `read_image` is not registered without `ctx.attachments`; its schema is route-independent, and execution refuses unless the exact routed model declares image input.',
+  },
+  {
+    pkg: '@deepseek-ai/dsh-tool-view-video',
+    dir: 'tool-view-video',
+    source: 'packages/fs/tool-view-video/src/index.ts',
+    requires: ['ctx.tools', 'ctx.fs', 'ctx.subprocess', 'ctx.attachments'],
+    writes: ['tool/call', 'durable image attachment (the rendered sheet)', 'tool/result'],
+    async mount(ctx) {
+      // Registration needs the seam markers only; ffmpeg runs at execution
+      // time, so the catalog harvests the schema without spawning anything.
+      await ctx.plugin(LocalFileSystem)
+      await ctx.plugin(LocalSubprocessRuntime)
+      await ctx.plugin(CatalogAttachmentStore)
+      await ctx.plugin(ToolViewVideo)
+    },
+    note:
+      'view_video samples a clip into one labelled contact sheet and returns it as an image block, so the caller — not the provider — chooses the frame stride. It needs `ffmpeg` and `ffprobe` on the host PATH, and an image-capable route to be useful.',
   },
   {
     pkg: '@deepseek-ai/dsh-tool-fs-search',

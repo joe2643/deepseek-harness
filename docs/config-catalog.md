@@ -335,10 +335,18 @@ export interface Config {
   maxMessageImageBytes?: number
   /** Maximum intrinsic width multiplied by height accepted for one image. */
   maxImagePixels?: number
+  /** Maximum encoded bytes accepted for one video. */
+  maxVideoBytes?: number
+  /** Maximum video count accepted in one submitted message. */
+  maxVideosPerMessage?: number
+  /** Maximum aggregate encoded video bytes accepted in one submitted message. */
+  maxMessageVideoBytes?: number
+  /** Maximum container duration in seconds accepted for one video. */
+  maxVideoDurationSeconds?: number
 }
 ```
 
-Source: [`packages/attachment/attachment-local/src/index.ts:24`](../packages/attachment/attachment-local/src/index.ts)
+Source: [`packages/attachment/attachment-local/src/index.ts:42`](../packages/attachment/attachment-local/src/index.ts)
 
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -2733,6 +2741,26 @@ export interface Config {
 ```
 
 Source: [`packages/todo/tool-todo/src/index.ts:29`](../packages/todo/tool-todo/src/index.ts)
+
+<a id="deepseek-aidsh-tool-view-video"></a>
+
+## `@deepseek-ai/dsh-tool-view-video`
+
+Requires: `tools` · `attachments` · `fs` · `subprocess`
+
+```ts config-catalog
+/** Deployment-owned limits for one rendered contact sheet. */
+export interface Config {
+  /** Largest sheet this deployment will hand to the attachment service. */
+  maxSheetBytes?: number
+  /** mjpeg quality scale, 2 (best) to 31 (worst). */
+  jpegQuality?: number
+  /** Wall-clock cap for one ffmpeg render. */
+  renderTimeoutMs?: number
+}
+```
+
+Source: [`packages/fs/tool-view-video/src/index.ts:37`](../packages/fs/tool-view-video/src/index.ts)
 
 <a id="deepseek-aidsh-tool-web"></a>
 

@@ -61,7 +61,7 @@ const FALLBACK_FPS = 24
 
 /** Clamp one optional numeric argument into an inclusive range. */
 function clamp(value: number | undefined, fallback: number, min: number, max: number): number {
-  const parsed = Math.floor(Number(value ?? fallback))
+  const parsed = Math.floor(value ?? fallback)
   if (!Number.isFinite(parsed)) return fallback
   return Math.max(min, Math.min(max, parsed))
 }
@@ -79,12 +79,14 @@ function clamp(value: number | undefined, fallback: number, min: number, max: nu
  */
 export function planSampling(args: SampleArgs, video: VideoFacts): SheetPlan {
   const duration = video.duration > 0 ? video.duration : 0
-  const startArg = Number(args.start ?? 0)
+  const startArg = args.start ?? 0
   const start = Number.isFinite(startArg) && startArg > 0 ? startArg : 0
-  const endArg = Number(args.end ?? duration)
-  let end = Number.isFinite(endArg) && endArg > start ? endArg : duration
-  if (duration > 0 && end > duration) end = duration
-  if (!(end > start)) end = start + (duration > 0 ? duration : 1)
+  const endArg = args.end ?? duration
+  // A clip whose container reports no duration still needs a window, so an
+  // unusable end falls back to one nominal second after the start.
+  const requestedEnd = Number.isFinite(endArg) && endArg > start ? endArg : duration
+  const clamped = duration > 0 ? Math.min(requestedEnd, duration) : requestedEnd
+  const end = clamped > start ? clamped : start + 1
 
   const count = clamp(args.count, DEFAULT_COUNT, 1, MAX_COUNT)
   const fps = video.fps > 0 ? video.fps : FALLBACK_FPS
@@ -92,12 +94,14 @@ export function planSampling(args: SampleArgs, video: VideoFacts): SheetPlan {
   const stride = Math.max(1, Math.round(windowFrames / count))
   const startFrame = Math.round(start * fps)
 
+  // The window is at least one frame wide and the walk starts at startFrame,
+  // so the first multiple of stride at or after it is always admitted: picked
+  // can never come back empty.
   const picked: number[] = []
   for (let offset = 0; offset < windowFrames && picked.length < count; offset += 1) {
     const absolute = startFrame + offset
     if (absolute % stride === 0) picked.push(absolute)
   }
-  if (picked.length === 0) picked.push(startFrame)
 
   const tileWidth = clamp(args.tile_width, DEFAULT_TILE_WIDTH, MIN_TILE_WIDTH, MAX_TILE_WIDTH)
   return {

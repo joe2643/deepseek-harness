@@ -376,6 +376,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the verified bytes and canonical reference.',
         throws: ['the signal reason when aborted, or a storage error when verification fails.'],
       },
+      {
+        signature: 'abstract readonly videoLimits: VideoAttachmentLimits',
+        description: 'Deployment-resolved video policy used by authoritative and fast-path validation.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract validateVideo(input: SaveVideoAttachment): Promise<void>',
+        description: 'Validate one video without persisting it. Batch callers validate every member before saving any member.',
+        parameters: [{ name: 'input', description: 'encoded bytes, declared media type, and optional display name.' }],
+        returns: 'completion after the container has been probed.',
+      },
+      {
+        signature: 'abstract saveVideo(input: SaveVideoAttachment): Promise<VideoAttachmentRef>',
+        description: 'Validate and durably commit one video before its owning session event is appended.',
+        parameters: [{ name: 'input', description: 'encoded bytes, declared media type, and optional display name.' }],
+        returns: 'a durable content-addressed reference carrying geometry and timing.',
+      },
+      {
+        signature: 'abstract readVideo(ref: VideoAttachmentRef, signal?: AbortSignal): Promise<StoredVideoAttachment>',
+        description: 'Read one video and verify that bytes still match the recorded reference.',
+        parameters: [{ name: 'ref', description: 'durable reference from the session log.' }, { name: 'signal', description: 'optional cancellation for backend read and verification work.' }],
+        returns: 'the verified bytes and canonical reference.',
+        throws: ['the signal reason when aborted, or a storage error when verification fails.'],
+      },
     ],
   },
   {
@@ -2831,7 +2855,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContentBlockMap',
-    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
+    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'video\': VideoBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
   {
     name: 'ContentBlockType',
@@ -3463,7 +3487,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelModalityMap',
-    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
+    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n    video: \'video\';\n}',
   },
   {
     name: 'ObjectJsonSchema',
@@ -3680,6 +3704,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SaveTextSpill',
     declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+  },
+  {
+    name: 'SaveVideoAttachment',
+    declaration: 'export interface SaveVideoAttachment {\n    data: Uint8Array;\n    mediaType: VideoMediaType;\n    name?: string;\n}',
   },
   {
     name: 'ScheduledToolDispatch',
@@ -4088,6 +4116,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StoredImageAttachment',
     declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
+  },
+  {
+    name: 'StoredVideoAttachment',
+    declaration: 'export interface StoredVideoAttachment {\n    ref: VideoAttachmentRef;\n    data: Uint8Array;\n}',
   },
   {
     name: 'StreamChunk',
@@ -4528,6 +4560,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserQuestionProvider',
     declaration: 'export interface UserQuestionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'VideoAttachmentLimits',
+    declaration: 'export interface VideoAttachmentLimits {\n    maxVideoBytes: number;\n    maxVideosPerMessage: number;\n    maxMessageVideoBytes: number;\n    maxVideoDurationSeconds: number;\n    mediaTypes: readonly VideoMediaType[];\n}',
+  },
+  {
+    name: 'VideoAttachmentRef',
+    declaration: 'export interface VideoAttachmentRef {\n    attachmentId: AttachmentId;\n    mediaType: VideoMediaType;\n    bytes: number;\n    width: number;\n    height: number;\n    durationSeconds: number;\n    frameRate: number;\n    name?: string;\n}',
+  },
+  {
+    name: 'VideoBlock',
+    declaration: 'export interface VideoBlock {\n    type: \'video\';\n    attachment: VideoAttachmentRef;\n}',
+  },
+  {
+    name: 'VideoMediaType',
+    declaration: 'export type VideoMediaType = \'video/mp4\' | \'video/quicktime\';',
   },
   {
     name: 'WebBootEntry',

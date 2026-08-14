@@ -135,17 +135,16 @@ export async function probeVideo(
 /**
  * Escape one caption for ffmpeg's `drawtext`.
  *
- * The value is parsed twice — once splitting the filtergraph, once expanding
- * drawtext — so separators need escaping for both passes, and `%` (the
- * expansion sigil) is dropped rather than escaped so a caller's caption can
- * never introduce an expansion.
+ * Both separators take exactly ONE backslash inside a single-quoted `text=`
+ * value; a doubled colon escape reaches the option parser as a literal `:` and
+ * fails the graph with "No option name near …" (verified against ffmpeg).
+ * Backslashes, quotes and `%` are dropped rather than escaped, so a caption can
+ * neither close the quoting nor introduce a drawtext expansion.
  */
 function escapeCaption(value: string): string {
   return value
-    .replace(/\\/g, '')
-    .replace(/'/g, '')
-    .replace(/%/g, '')
-    .replace(/:/g, '\\\\:')
+    .replace(/[\\'%]/g, '')
+    .replace(/:/g, '\\:')
     .replace(/,/g, '\\,')
 }
 
