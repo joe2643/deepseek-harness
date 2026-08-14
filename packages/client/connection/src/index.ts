@@ -59,11 +59,30 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Let {@link PRIVILEGED_METHODS} be reached from a `trustedHosts` authority instead of
+   * loopback only. OFF by default, and deliberately so: `trustedHosts` is a DNS-rebinding
+   * fence, not authentication, so on its own it cannot say WHO is calling — only that the
+   * name they used is one this deployment answers to.
+   *
+   * Turn it on only where a separate layer already authenticates every caller that can reach
+   * the port at all, and where every such caller is trusted with this machine: a WireGuard or
+   * Tailscale interface with an ACL, or an authenticating reverse proxy. On such a deployment
+   * the loopback pin buys nothing — the operator is the only one who can connect — while
+   * costing them the entire settings and credential plane over their own private network.
+   *
+   * It is not a substitute for the authentication layer upstream is waiting on. If the port is
+   * reachable from a plain LAN, a coffee-shop network, or the public internet, leaving this off
+   * is the only correct setting: it hands `credentials.set`, `settings.replace`, and
+   * `host.openPath` to whoever finds it.
+   */
+  trustPrivilegedMethods?: boolean
 }
 
 export const Config: z<ConnectionConfig> = z.object({
   trustedHosts: z.array(String).default([]),
   maxRequestBodyBytes: z.natural().min(1).default(DEFAULT_MAX_REQUEST_BODY_BYTES),
+  trustPrivilegedMethods: z.boolean().default(false),
 })
 
 /**
@@ -123,7 +142,8 @@ const PRIVILEGED_METHODS = new Set([
  * the prefix passes the browser-trust fence first (DNS-rebinding and
  * cross-site defense — [api-request-trust](./api-request-trust.ts));
  * privileged methods additionally pass it with an empty trust list, which
- * pins them to loopback.
+ * pins them to loopback unless {@link ConnectionConfig.trustPrivilegedMethods}
+ * says the deployment authenticates its callers by other means.
  * @param ctx - Host plugin context.
  * @param config - resolved plugin config (schema defaults applied).
  */
@@ -131,6 +151,10 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // The Loader resolves schema defaults; hand-built test contexts may pass none.
   const trustedHosts = config?.trustedHosts ?? []
   const maxRequestBodyBytes = config?.maxRequestBodyBytes ?? DEFAULT_MAX_REQUEST_BODY_BYTES
+  // Empty list = the loopback pin; the configured list = the operator has asserted that
+  // reaching this port already required authenticating. Resolved once at load so the
+  // request path cannot drift from what the config said.
+  const privilegedTrust = config?.trustPrivilegedMethods === true ? trustedHosts : []
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
@@ -144,7 +168,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         : undefined
       if (method !== undefined
         && PRIVILEGED_METHODS.has(method)
-        && !isTrustedApiRequest(request, [])) {
+        && !isTrustedApiRequest(request, privilegedTrust)) {
         return new Response('forbidden', { status: 403 })
       }
       if (request.method === 'GET' && (pathname === MUX_EVENTS_PATH || pathname === HOST_EVENTS_PATH)) {

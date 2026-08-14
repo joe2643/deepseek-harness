@@ -58,6 +58,7 @@ export const apply = ctx => globalThis.__webStartupApply(ctx)
     "    host: !!js ctx.webStartup.host ?? '127.0.0.1'",
     '    port: !!js ctx.webStartup.port ?? 3080',
     '    trustedHosts: !!js ctx.webStartup.trustedHosts',
+    '    trustPrivilegedMethods: !!js ctx.webStartup.trustPrivilegedMethods',
     '- id: provider',
     `  name: ${pathToFileURL(join(dir, 'provider.mjs')).href}`,
     '',
@@ -97,6 +98,7 @@ describe('web command-line provider', () => {
       host: '127.0.0.1',
       port: 8080,
       trustedHosts: ['lab.internal', 'lab-2.internal', '10.0.0.9'],
+      trustPrivilegedMethods: false,
     })
     expect(observed.readerConfig).toEqual(values)
     expect(observed.exits).toEqual([])
@@ -104,12 +106,32 @@ describe('web command-line provider', () => {
 
   it('leaves deployment values to each consumer when flags omit them', async () => {
     const { values, observed } = await bootProvider([])
-    expect(values).toEqual({ trustedHosts: [] })
+    expect(values).toEqual({ trustedHosts: [], trustPrivilegedMethods: false })
     expect(observed.readerConfig).toEqual({
       host: '127.0.0.1',
       port: 3080,
       trustedHosts: [],
+      trustPrivilegedMethods: false,
     })
+  })
+
+  it('publishes the privileged-method opt-in alongside the authorities it applies to', async () => {
+    const { values, observed } = await bootProvider([
+      '--trusted-host', 'lab.internal:3080',
+      '--trust-privileged-methods',
+    ])
+    expect(values).toEqual({ trustedHosts: ['lab.internal:3080'], trustPrivilegedMethods: true })
+    expect(observed.exits).toEqual([])
+  })
+
+  it('rejects the privileged-method opt-in when no authority was declared', async () => {
+    // On its own the flag grants nothing, so accepting it would let the
+    // invocation read as a security change it did not make.
+    const { values, observed } = await bootProvider(['--trust-privileged-methods'])
+    expect(observed.out).toContain('--trust-privileged-methods needs at least one --trusted-host')
+    expect(values).toBeUndefined()
+    expect(observed.readerConfig).toBeUndefined()
+    expect(observed.exits).toEqual([1])
   })
 
   it('prints its own help and leaves the consumer pending', async () => {

@@ -407,6 +407,24 @@ export interface ConnectionConfig {
   trustedHosts?: string[]
   /** Maximum buffered JSON body for every `/api` request. */
   maxRequestBodyBytes?: number
+  /**
+   * Let {@link PRIVILEGED_METHODS} be reached from a `trustedHosts` authority instead of
+   * loopback only. OFF by default, and deliberately so: `trustedHosts` is a DNS-rebinding
+   * fence, not authentication, so on its own it cannot say WHO is calling — only that the
+   * name they used is one this deployment answers to.
+   *
+   * Turn it on only where a separate layer already authenticates every caller that can reach
+   * the port at all, and where every such caller is trusted with this machine: a WireGuard or
+   * Tailscale interface with an ACL, or an authenticating reverse proxy. On such a deployment
+   * the loopback pin buys nothing — the operator is the only one who can connect — while
+   * costing them the entire settings and credential plane over their own private network.
+   *
+   * It is not a substitute for the authentication layer upstream is waiting on. If the port is
+   * reachable from a plain LAN, a coffee-shop network, or the public internet, leaving this off
+   * is the only correct setting: it hands `credentials.set`, `settings.replace`, and
+   * `host.openPath` to whoever finds it.
+   */
+  trustPrivilegedMethods?: boolean
 }
 ```
 
@@ -2884,6 +2902,8 @@ export interface Config {
   surfaceContext: boolean
   /** Explicit `--trusted-host` authorities from this invocation. */
   trustedHosts: string[]
+  /** `--trust-privileged-methods`: carried through to the /api fence unchanged. */
+  trustPrivilegedMethods: boolean
 }
 ```
 

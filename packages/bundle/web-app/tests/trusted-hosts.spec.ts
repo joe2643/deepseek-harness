@@ -27,8 +27,14 @@ describe('resolveLanTrust', () => {
   })
 
   it('derives nothing for a loopback bind — extras alone stand, no LAN URL to print', () => {
-    expect(resolveLanTrust('127.0.0.1', [])).toEqual({ lanAddresses: [], trustedHosts: [] })
+    expect(resolveLanTrust('127.0.0.1', []))
+      .toEqual({ lanAddresses: [], trustedHosts: [], trustPrivilegedMethods: false })
     expect(resolveLanTrust('127.0.0.1', ['lab.internal']))
-      .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'] })
+      .toEqual({ lanAddresses: [], trustedHosts: ['lab.internal'], trustPrivilegedMethods: false })
+  })
+
+  it('carries the privileged-method opt-in through unchanged; the pin holds unless asked for', () => {
+    expect(resolveLanTrust('127.0.0.1', ['lab.internal']).trustPrivilegedMethods).toBe(false)
+    expect(resolveLanTrust('127.0.0.1', ['lab.internal'], true).trustPrivilegedMethods).toBe(true)
   })
 })

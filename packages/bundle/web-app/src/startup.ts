@@ -1,6 +1,6 @@
 /**
  * The web app's command-line provider: it parses the `dsh --profile web` flag
- * family (`--host`, `--port`, `--trusted-host`) and its `--help`
+ * family (`--host`, `--port`, `--trusted-host`, `--trust-privileged-methods`) and its `--help`
  * text, then provides the immutable values as {@link WEB_STARTUP_SERVICE}.
  * Ordinary rows inject that service before reading it from lazy config.
  * @module @deepseek-ai/dsh-web-app/startup
@@ -27,6 +27,8 @@ export interface WebStartupValues {
   port?: number
   /** Explicit `--trusted-host` authorities, in argument order. */
   trustedHosts: string[]
+  /** `--trust-privileged-methods`: lift the loopback pin on the settings and credential plane. */
+  trustPrivilegedMethods: boolean
 }
 
 /** The web flag family, as commander parsed it. */
@@ -34,6 +36,7 @@ interface WebOptions {
   host?: string
   port?: string
   trustedHost?: string[]
+  trustPrivilegedMethods?: boolean
 }
 
 /**
@@ -48,6 +51,7 @@ function webCommand(): Command {
     .option('--host <host>', 'bind host')
     .option('--port <port>', 'listen port; pass 0 to let the OS pick a free one')
     .option('--trusted-host <authority...>', 'extra authority the /api browser-trust fence accepts (host or host:port; repeatable)')
+    .option('--trust-privileged-methods', 'let --trusted-host reach the settings and credential methods, which are otherwise loopback-only; ONLY for a port already behind authentication (VPN ACL, authenticating proxy)')
     .addHelpText('after', `
 Examples:
   dsh --profile web                          serve on the composed host and port
@@ -72,10 +76,16 @@ export function apply(ctx: Context): void {
     if (options.port !== undefined && !/^\d+$/.test(options.port)) {
       program.error(`error: --port must be a number, got ${JSON.stringify(options.port)}`)
     }
+    // Lifting the pin without naming an authority would be a no-op that reads as a
+    // security change, so refuse it rather than let the invocation lie about itself.
+    if (options.trustPrivilegedMethods === true && (options.trustedHost ?? []).length === 0) {
+      program.error('error: --trust-privileged-methods needs at least one --trusted-host; on its own it grants nothing')
+    }
     ctx.provide(WEB_STARTUP_SERVICE, {
       ...options.host !== undefined && { host: options.host },
       ...options.port !== undefined && { port: Number(options.port) },
       trustedHosts: options.trustedHost ?? [],
+      trustPrivilegedMethods: options.trustPrivilegedMethods === true,
     } satisfies WebStartupValues)
   })
   parseCmdline(ctx, program)

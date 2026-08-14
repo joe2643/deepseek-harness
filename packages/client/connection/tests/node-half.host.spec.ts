@@ -74,7 +74,7 @@ function fakeResponse(): { response: ServerResponse; state: { status?: number; b
   return { response, state }
 }
 
-async function mounted(config?: { trustedHosts?: string[] }): Promise<{
+async function mounted(config?: { trustedHosts?: string[]; trustPrivilegedMethods?: boolean }): Promise<{
   routes: WebRoute[]
   upgrades: WebUpgradeRoute[]
   dispose: () => Promise<void>
@@ -189,6 +189,33 @@ describe('connection node half', () => {
     const read = fakeResponse()
     await routes[0]!.handler(fakeRequest({ host: 'harness.example' }), read.response)
     expect(read.state.status).not.toBe(403)
+    await dispose()
+  })
+
+  it('lets a declared authority reach privileged methods once the deployment opts in', async () => {
+    // trustPrivilegedMethods is the operator asserting that reaching this port
+    // already required authenticating (a VPN ACL, an authenticating proxy). The
+    // pin lifts to exactly the declared authorities — never to any Host at all.
+    const { routes, dispose } = await mounted({
+      trustedHosts: ['harness.example'],
+      trustPrivilegedMethods: true,
+    })
+    for (const method of ['settings.describe', 'credentials.set', 'host.openPath']) {
+      const allowed = fakeResponse()
+      await routes[0]!.handler(
+        fakeRequest({ host: 'harness.example' }, `${API_PATH}/${method}`),
+        allowed.response,
+      )
+      // 404 from the empty proxy carrier: the fence passed and the bridge ran.
+      expect(allowed.state.status).toBe(404)
+    }
+    // An authority this deployment never declared stays out, opt-in or not.
+    const stranger = fakeResponse()
+    await routes[0]!.handler(
+      fakeRequest({ host: 'attacker.example' }, `${API_PATH}/settings.describe`),
+      stranger.response,
+    )
+    expect(stranger.state.status).toBe(403)
     await dispose()
   })
 
