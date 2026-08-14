@@ -166,14 +166,16 @@ export function apply(ctx: Context, config: AcpConfig): void {
                 content: { type: 'text', text: block.text },
               },
             })
-          } else if (block.type === 'image') {
+          } else if (block.type === 'image' || block.type === 'video') {
+            // ACP carries text; a durable medium is announced by kind and id
+            // so a client can resolve it, rather than dropped silently.
             notify({
               sessionId: record.agent.session.id,
               update: {
                 sessionUpdate: 'agent_message_chunk',
                 content: {
                   type: 'text',
-                  text: `[image attachment ${block.attachment.attachmentId}]`,
+                  text: `[${block.type} attachment ${block.attachment.attachmentId}]`,
                 },
               },
             })

@@ -70,6 +70,37 @@ describe('ACP prompt lifecycle', () => {
     })
   })
 
+  it('renders an assistant video as an explicit attachment placeholder', async () => {
+    const attachmentId = `sha256:${'c'.repeat(64)}` as never
+    harness = await makeBridgeHarness({
+      script: [[
+        { type: 'block-start', index: 0, blockType: 'video' },
+        {
+          type: 'block-end',
+          index: 0,
+          block: {
+            type: 'video',
+            attachment: {
+              attachmentId,
+              mediaType: 'video/mp4',
+              bytes: 4,
+              width: 640,
+              height: 480,
+              durationSeconds: 10,
+              frameRate: 24,
+            },
+          },
+        },
+        { type: 'finish', reason: { kind: 'stop' } },
+      ]],
+    })
+    const sessionId = await newSession(harness)
+    await harness.client.prompt({ sessionId, prompt: [{ type: 'text', text: 'show it' }] })
+    await vi.waitFor(() => {
+      expect(messageText(harness!)).toBe(`[video attachment ${String(attachmentId)}]`)
+    })
+  })
+
   it('rejects a failed turn and never publishes its partial chunks', async () => {
     harness = await makeBridgeHarness({ script: [errorResponse('provider boom')] })
     const sessionId = await newSession(harness)
