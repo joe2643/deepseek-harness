@@ -5,7 +5,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { contentHasImage, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, contentHasVideo, createUserMessage, BlockAssembler, LlmError } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock, FinishReason, GenerateOptions, Message, TokenUsage, ToolSchema,
 } from '@deepseek-ai/dsh-llm'
@@ -213,12 +213,22 @@ function finishError(finish: FinishReason): Error | undefined {
   }
 }
 
-/** Reject visual output and keep only text before synthesizing a user message. */
+/**
+ * Reject visual output and keep only text before synthesizing a user message.
+ *
+ * These blocks are the summarizer model's OWN output, so both guards are
+ * forward compatibility: no shipped adapter declares image or video output,
+ * and a summary that silently dropped a medium would misreport the history it
+ * replaces.
+ */
 function summaryText(
   blocks: readonly ContentBlock[],
 ): Array<Extract<ContentBlock, { type: 'text' }>> {
   if (contentHasImage(blocks)) {
     throw new LlmError('compaction summary cannot contain image output', 'UNSUPPORTED_CONTENT')
+  }
+  if (contentHasVideo(blocks)) {
+    throw new LlmError('compaction summary cannot contain video output', 'UNSUPPORTED_CONTENT')
   }
   return blocks.filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
 }

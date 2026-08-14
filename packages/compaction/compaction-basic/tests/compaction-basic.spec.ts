@@ -1414,6 +1414,26 @@ describe('default one-shot summarizer', () => {
       .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
   })
 
+  it('rejects video summary output instead of silently dropping it', async () => {
+    const { compact } = await summarizerHarness([
+      {
+        type: 'video',
+        attachment: {
+          attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+          mediaType: 'video/mp4',
+          bytes: 4,
+          width: 640,
+          height: 480,
+          durationSeconds: 10,
+          frameRate: 24,
+        },
+      },
+      { type: 'text', text: 'partial summary' },
+    ])
+    await expect(compact.runSummarize(promptInput('history'), agent(conversation(1), MODEL)))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
   it('rejects image summary output nested in a tool result', async () => {
     const { compact } = await summarizerHarness([{
       type: 'tool-result',
